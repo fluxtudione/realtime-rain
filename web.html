@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAW DATA SQL</title>
+    <script src="https://cdn.jsdelivr.net/npm/jquery/dist/jquery.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-4">
+        <h1 class="text-center">RAW DATA SQL</h1>
+
+        <div class="row mt-4">
+            <div class="col-md-6">
+                <label for="databases" class="form-label">Choose Database:</label>
+                <select id="databases" class="form-select">
+                    <option value="arg_db">arg_db</option>
+                    <option value="aws_db">aws_db</option>
+                    <option value="aaws_db">aaws_db</option>
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label for="tables" class="form-label">Choose Table:</label>
+                <input list="tableList" id="tables" class="form-select" placeholder="Search Table..." />
+                <datalist id="tableList"></datalist>
+            </div>
+            
+            <!-- <div class="col-md-6">
+                <label for="tables" class="form-label">Choose Table:</label>
+                <select id="tables" class="form-select"></select>
+            </div> -->
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-md-6">
+                <label for="start" class="form-label">Start Timestamp:</label>
+                <input type="datetime-local" id="start" class="form-control">
+            </div>
+
+            <div class="col-md-6">
+                <label for="end" class="form-label">End Timestamp:</label>
+                <input type="datetime-local" id="end" class="form-control">
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <button id="fetchData" class="btn btn-primary">Fetch Data</button>
+            <button id="exportCSV" class="btn btn-success">Export to CSV</button>
+        </div>
+
+        <div class="scroll-container mt-4">
+            <div style="overflow-x: auto;">
+                <table class="table table-bordered" id="resultTable">
+                    <thead>
+                        <tr id="tableHeader"></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <button id="prevPage" class="btn btn-secondary" disabled>Previous</button>
+            <span id="pageInfo" class="mx-3"></span>
+            <button id="nextPage" class="btn btn-secondary" disabled>Next</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        let currentPage = 1; // Halaman aktif
+        let pageSize = 20; // Jumlah entri per halaman
+        let totalRows = []; // Semua data yang diterima
+
+        // Fungsi untuk merender data ke tabel berdasarkan halaman
+        function renderTable(page) {
+            const tableBody = $("#resultTable tbody");
+            tableBody.empty();
+
+            const start = (page - 1) * pageSize;
+            const end = Math.min(start + pageSize, totalRows.length);
+
+            // Render entri yang sesuai dengan halaman saat ini
+            for (let i = start; i < end; i++) {
+                const row = totalRows[i];
+                const rowHtml = Object.values(row)
+                    .map(value => `<td>${value}</td>`)
+                    .join("");
+                tableBody.append(`<tr>${rowHtml}</tr>`);
+            }
+
+            // Update informasi halaman
+            $("#pageInfo").text(`Page ${page} of ${Math.ceil(totalRows.length / pageSize)}`);
+
+            // Atur tombol Previous dan Next
+            $("#prevPage").prop("disabled", page === 1);
+            $("#nextPage").prop("disabled", end >= totalRows.length);
+        }
+
+        // Tombol Previous
+        $("#prevPage").click(function () {
+            if (currentPage > 1) {
+                currentPage--;
+                renderTable(currentPage);
+            }
+        });
+
+        // Tombol Next
+        $("#nextPage").click(function () {
+            if (currentPage < Math.ceil(totalRows.length / pageSize)) {
+                currentPage++;
+                renderTable(currentPage);
+            }
+        });
+
+        // Fetch data
+        $("#fetchData").click(function () {
+            const db = $("#databases").val();
+            const table = $("#tables").val();
+            const start = $("#start").val();
+            const end = $("#end").val();
+
+            $.post("web.php", { fetch_data: 1, db, table, start, end }, function (data) {
+                const rows = JSON.parse(data);
+                const tableHeader = $("#tableHeader");
+
+                // Bersihkan hasil sebelumnya
+                totalRows = rows;
+                tableHeader.empty();
+                $("#resultTable tbody").empty();
+
+                if (rows.length > 0) {
+                    // Set header
+                    Object.keys(rows[0]).forEach(key => {
+                        tableHeader.append(`<th>${key}</th>`);
+                    });
+
+                    // Reset halaman dan render tabel
+                    currentPage = 1;
+                    renderTable(currentPage);
+                } else {
+                    alert("No data found!");
+                }
+            });
+        });
+      
+
+
+            // Sort totalRows secara ascending berdasarkan kolom waktu sebelum ekspor
+            $("#exportCSV").click(function () {
+                const tableName = $("#tables").val();
+                const today = new Date();
+                const formattedDate = today.toISOString().slice(0, 10).replace(/-/g, "");
+                const fileName = `${tableName}-${formattedDate}.csv`;
+
+                const rows = [];
+                const headers = [];
+                
+                // Ambil header tabel
+                $("#tableHeader th").each(function () {
+                    headers.push($(this).text());
+                });
+                rows.push(headers.join(",")); // Tambahkan header ke CSV
+
+                // Sortir totalRows secara ascending berdasarkan kolom waktu
+                const timeColumn = headers[0]; // Misalkan kolom waktu adalah header pertama
+                const sortedRows = totalRows.sort((a, b) => new Date(a[timeColumn]) - new Date(b[timeColumn]));
+
+                // Ambil data yang sudah disortir
+                sortedRows.forEach(row => {
+                    const rowData = headers.map(header => row[header] ?? ""); // Ambil nilai sesuai urutan header
+                    rows.push(rowData.join(",")); // Gabungkan data baris ke format CSV
+                });
+
+            // Buat CSV file
+            const csvContent = rows.join("\n");
+            const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", fileName);
+            link.style.display = "none";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+
+    // Load tabel berdasarkan database
+    // $("#databases").change(function () {
+    //     const db = $("#databases").val();
+    //     $("#tables").empty();
+    //     $.get(`web.php?get_tables=1&db=${db}`, function (data) {
+    //         const tables = JSON.parse(data);
+    //         tables.forEach(table => {
+    //             $("#tables").append(`<option value="${table}">${table}</option>`);
+    //         });
+    //     });
+    // }).trigger("change");
+                $("#databases").change(function () {
+            const db = $("#databases").val(); // Database yang dipilih
+            $("#tableList").empty(); // Kosongkan datalist sebelumnya
+
+            // Fetch tabel dari server
+            $.get(`web.php?get_tables=1&db=${db}`, function (data) {
+                const tables = JSON.parse(data); // Parse hasil JSON dari server
+                tables.forEach(table => {
+                    $("#tableList").append(`<option value="${table}"></option>`); // Isi datalist
+                });
+            });
+        }).trigger("change");
+    </script>
+</body>
+</html>

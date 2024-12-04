@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoring Curah Hujan</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    
+</head>
+<body>
+    <div id="map" style="height: 100vh;"></div>
+
+    <script>
+        // Inisialisasi peta
+        const map = L.map('map').setView([-6.1751, 106.8650], 10); // Jakarta sebagai pusat peta
+
+        // Tambahkan layer peta
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Fungsi untuk menambahkan dan memperbarui marker
+        // Fungsi untuk menambahkan dan memperbarui marker
+        let currentPopup = null; // Variabel untuk melacak pop-up yang sedang terbuka
+let lastRrValues = {}; // Menyimpan nilai rr terakhir per alat (site)
+let lastRainTimes = {}; // Menyimpan waktu terakhir kali terjadi hujan per alat (site)
+
+// Fungsi untuk menambahkan dan memperbarui marker
+const updateMarkers = (data) => {
+    // Hapus marker lama
+    map.eachLayer(layer => {
+        if (layer instanceof L.Circle || layer instanceof L.DivOverlay) {
+            map.removeLayer(layer);
+        }
+    });
+
+    const now = Math.floor(Date.now() / 1000); // Waktu saat ini dalam detik
+
+    // Tambahkan marker baru
+    data.forEach(device => {
+        const site = device.site;
+        const rr = parseFloat(device.rr); // Pastikan rr adalah angka
+        let color = 'gray'; // Default warna hijau (tidak hujan)
+        let fillColor = 'gray'; // Default warna hijau (tidak hujan)
+        let radius = 2000; // Ukuran marker untuk tidak hujan
+
+        // Jika site belum ada, inisialisasi nilai rr sebelumnya dan waktu hujan dengan 0
+        if (!lastRrValues[site]) {
+            lastRrValues[site] = 0;
+            lastRainTimes[site] = 0;
+        }
+
+        // Logika Kondisi:
+        if (rr > lastRrValues[site] && rr > 0) {
+            // Kondisi 1: Hujan baru terjadi (rr meningkat)
+            color = 'blue';  // Warna biru
+            fillColor = 'blue';
+            radius = 4000; // Ukuran besar
+            lastRainTimes[site] = now; // Perbarui waktu terakhir hujan
+        } else if (rr === lastRrValues[site] && rr > 0) {
+            // Kondisi 2: Hujan berhenti tapi masih dalam durasi 5 menit terakhir
+            if (now - lastRainTimes[site] <= 180) { // 300 detik = 5 menit
+                color = 'blue';  // Tetap biru
+                fillColor = 'blue';
+                radius = 4000; // Tetap besar
+            } else {
+                // Hujan sudah berhenti lebih dari 5 menit
+                color = 'green';
+                fillColor = 'green';
+                radius = 3000;
+            }
+        } else if (rr === 0 && lastRrValues[site] > 0) {
+            // Kondisi 3: Tidak ada hujan sama sekali
+            color = 'black';
+            fillColor = 'gray';
+            radius = 2000;
+        }
+
+        // Membuat marker berbentuk lingkaran
+        const circle = L.circle([device.lat, device.lng], {
+            color: color, // Warna outline
+            fillColor: fillColor, // Warna isi
+            fillOpacity: 0.5,
+            radius: radius // Ukuran marker
+        }).addTo(map);
+
+        // Pop-up dengan informasi alat
+        const popupContent = `
+            <b>Site:</b> ${device.site}<br>
+            <b>ID Sta:</b> ${device.id_sta}<br>
+            <b>Last Received:</b> ${device.time_received}<br>
+            <b>Rainfall (RR):</b> ${device.rr} mm
+        `;
+        
+        // Bind pop-up ke marker, nonaktifkan pop-up otomatis tutup saat peta diklik
+        circle.bindPopup(popupContent, { closeOnClick: false });
+
+        // Menambahkan interaksi klik untuk marker
+        circle.on('click', function() {
+            // Jika pop-up sudah terbuka dan marker yang sama diklik lagi, tutup pop-up
+            if (currentPopup && currentPopup === circle) {
+                currentPopup.closePopup();
+                currentPopup = null; // Set kembali ke null untuk menandakan tidak ada pop-up yang terbuka
+            } else {
+                // Tutup pop-up yang sedang terbuka
+                if (currentPopup) {
+                    currentPopup.closePopup();
+                }
+
+                // Membuka pop-up untuk marker yang baru
+                circle.openPopup();
+                currentPopup = circle; // Menyimpan marker yang pop-upnya terbuka
+            }
+        });
+
+        // Simpan nilai rr terakhir untuk site ini
+        lastRrValues[site] = rr;
+    });
+};
+
+
+        // Ambil data dari API backend secara berkala
+        setInterval(() => {
+            fetch('/sql/peta.php') // Endpoint backend PHP
+                .then(response => response.json())
+                .then(data => updateMarkers(data))
+                .catch(error => console.error('Error fetching data:', error));
+        }, 5000); // Update setiap 5 detik
+    </script>
+</body>
+</html>
